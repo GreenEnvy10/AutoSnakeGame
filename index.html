@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Autonomous 2-Snake Game</title>
+  <style>
+    body {
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      font-family: sans-serif;
+      color: #fff;
+    }
+    canvas {
+      background: #000;
+      border: 2px solid #fff;
+    }
+    #message {
+      position: absolute;
+      top: 20px;
+      text-align: center;
+      width: 100%;
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div id="message"></div>
+  <canvas id="gameCanvas" width="600" height="600"></canvas>
+  <script>
+    // Game configuration
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const gridSize = 20; // each cell size in pixels
+    const cols = canvas.width / gridSize;
+    const rows = canvas.height / gridSize;
+    const frameRate = 100; // game update every 100ms
+
+    // Snake object constructor
+    class Snake {
+      constructor(color, startX, startY) {
+        this.color = color;
+        this.body = [{ x: startX, y: startY }];
+        this.dir = { x: 0, y: 0 };
+        this.alive = true;
+      }
+
+      // Get head position
+      get head() {
+        return this.body[0];
+      }
+
+      // AI decision: simple algorithm that steers toward food
+      // while avoiding collisions with walls or snake bodies.
+      decideDirection(food, otherSnake) {
+        if (!this.alive) return;
+
+        // Candidate directions: up, right, down, left
+        const directions = [
+          { x: 0, y: -1 },
+          { x: 1, y: 0 },
+          { x: 0, y: 1 },
+          { x: -1, y: 0 }
+        ];
+
+        // avoid reversing direction (if snake length > 1)
+        const validDirs = directions.filter(d => {
+          if (this.body.length > 1) {
+            if (d.x === -this.dir.x && d.y === -this.dir.y) return false;
+          }
+          // Compute new head position
+          const newX = this.head.x + d.x;
+          const newY = this.head.y + d.y;
+          // Check walls
+          if (newX < 0 || newX >= cols || newY < 0 || newY >= rows) return false;
+          // Check self collision
+          for (let cell of this.body) {
+            if (cell.x === newX && cell.y === newY) return false;
+          }
+          // Check collision with other snake's body (if exists)
+          if (otherSnake) {
+            for (let cell of otherSnake.body) {
+              if (cell.x === newX && cell.y === newY) return false;
+            }
+          }
+          return true;
+        });
+
+        // if no valid move found, keep current direction (may lead to death)
+        if (validDirs.length === 0) return;
+
+        // Choose the direction that minimizes the Manhattan distance to food
+        validDirs.sort((a, b) => {
+          const distA = Math.abs((this.head.x + a.x) - food.x) + Math.abs((this.head.y + a.y) - food.y);
+          const distB = Math.abs((this.head.x + b.x) - food.x) + Math.abs((this.head.y + b.y) - food.y);
+          return distA - distB;
+        });
+        this.dir = validDirs[0];
+      }
+
+      move() {
+        if (!this.alive) return;
+        const newHead = { x: this.head.x + this.dir.x, y: this.head.y + this.dir.y };
+        this.body.unshift(newHead);
+        this.body.pop();
+      }
+
+      grow() {
+        // add new head but do not remove tail, so snake grows
+        const newHead = { x: this.head.x + this.dir.x, y: this.head.y + this.dir.y };
+        this.body.unshift(newHead);
+      }
+
+      checkCollision() {
+        // Check self collision
+        for (let i = 1; i < this.body.length; i++) {
+          if (this.head.x === this.body[i].x && this.head.y === this.body[i].y) {
+            this.alive = false;
+            return;
+          }
+        }
+        // Check wall collision
+        if (this.head.x < 0 || this.head.x >= cols || this.head.y < 0 || this.head.y >= rows) {
+          this.alive = false;
+          return;
+        }
+      }
+    }
+
+    // Game variables
+    let snake1 = new Snake("lime", 5, 5);
+    let snake2 = new Snake("cyan", cols - 6, rows - 6);
+    // Give initial directions
+    snake1.dir = { x: 1, y: 0 };
+    snake2.dir = { x: -1, y: 0 };
+
+    let food = randomFood();
+
+    // Generate a random food location that is not on any snake's body
+    function randomFood() {
+      let valid = false;
+      let pos;
+      while (!valid) {
+        pos = {
+          x: Math.floor(Math.random() * cols),
+          y: Math.floor(Math.random() * rows)
+        };
+        valid = true;
+        // Ensure food doesn't spawn on snake1
+        for (let cell of snake1.body) {
+          if (cell.x === pos.x && cell.y === pos.y) valid = false;
+        }
+        // Ensure food doesn't spawn on snake2
+        for (let cell of snake2.body) {
+          if (cell.x === pos.x && cell.y === pos.y) valid = false;
+        }
+      }
+      return pos;
+    }
+
+    // Draw grid cell
+    function drawCell(x, y, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
+    }
+
+    // Draw the game
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw food
+      drawCell(food.x, food.y, "red");
+
+      // Draw snake1
+      if (snake1.alive) {
+        snake1.body.forEach((cell, index) => {
+          drawCell(cell.x, cell.y, index === 0 ? "yellow" : snake1.color);
+        });
+      }
+
+      // Draw snake2
+      if (snake2.alive) {
+        snake2.body.forEach((cell, index) => {
+          drawCell(cell.x, cell.y, index === 0 ? "orange" : snake2.color);
+        });
+      }
+    }
+
+    // Main game loop
+    function update() {
+      // If both snakes are dead or only one remains, show game over
+      if ((!snake1.alive && !snake2.alive) || (!snake1.alive && snake2.alive) || (snake1.alive && !snake2.alive)) {
+        const msg = document.getElementById("message");
+        if (snake1.alive && !snake2.alive) {
+          msg.textContent = "Snake 1 wins!";
+        } else if (snake2.alive && !snake1.alive) {
+          msg.textContent = "Snake 2 wins!";
+        } else {
+          msg.textContent = "Game Over! Both snakes died.";
+        }
+        clearInterval(gameInterval);
+        return;
+      }
+
+      // Each snake decides next move
+      snake1.decideDirection(food, snake2);
+      snake2.decideDirection(food, snake1);
+
+      // Move snakes
+      snake1.move();
+      snake2.move();
+
+      // Check collisions for each snake
+      snake1.checkCollision();
+      snake2.checkCollision();
+
+      // Check for collisions between snake heads and other snake bodies
+      // Snake1 head with snake2 body
+      if (snake2.body.some(cell => cell.x === snake1.head.x && cell.y === snake1.head.y)) {
+        snake1.alive = false;
+      }
+      // Snake2 head with snake1 body
+      if (snake1.body.some(cell => cell.x === snake2.head.x && cell.y === snake2.head.y)) {
+        snake2.alive = false;
+      }
+
+      // Check if a snake eats food
+      if (snake1.alive && snake1.head.x === food.x && snake1.head.y === food.y) {
+        snake1.grow();
+        food = randomFood();
+      }
+      if (snake2.alive && snake2.head.x === food.x && snake2.head.y === food.y) {
+        snake2.grow();
+        food = randomFood();
+      }
+
+      draw();
+    }
+
+    // Start the game loop
+    const gameInterval = setInterval(update, frameRate);
+  </script>
+</body>
+</html>
