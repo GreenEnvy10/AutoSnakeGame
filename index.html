@@ -9,69 +9,78 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      font-family: Arial, sans-serif;
+      font-family: sans-serif;
       color: #fff;
+      margin: 0;
+      padding: 20px;
+    }
+    #gameContainer {
+      position: relative;
     }
     canvas {
       background: #000;
       border: 2px solid #fff;
-      margin-top: 10px;
+      display: block;
+      margin: 0 auto;
     }
-    #message {
-      font-size: 24px;
-      margin-bottom: 10px;
-    }
-    .buttons {
-      margin-bottom: 10px;
+    #controls {
+      margin: 10px 0;
     }
     button {
-      font-size: 18px;
-      padding: 10px;
-      margin: 5px;
-      cursor: pointer;
+      background: #444;
+      color: #fff;
       border: none;
-      border-radius: 5px;
+      padding: 10px 20px;
+      margin: 0 5px;
+      cursor: pointer;
+      font-size: 16px;
     }
-    #start {
-      background: green;
-      color: white;
+    button:hover {
+      background: #666;
     }
-    #restart {
-      background: red;
-      color: white;
-      display: none;
+    #message {
+      position: absolute;
+      top: 10px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 24px;
+      z-index: 2;
     }
-    .stats {
+    #stats {
       margin-top: 10px;
       font-size: 18px;
     }
   </style>
 </head>
 <body>
-  <div id="message">Press Start to Begin</div>
-  <div class="buttons">
-    <button id="start">Start</button>
-    <button id="restart">Restart</button>
+  <div id="controls">
+    <button id="startBtn">Start</button>
+    <button id="restartBtn" style="display:none;">Restart</button>
   </div>
-  <canvas id="gameCanvas" width="600" height="600"></canvas>
-  <div class="stats">
-    Games Played: <span id="gamesPlayed">0</span> |
-    Snake 1 Wins: <span id="snake1Wins">0</span> |
-    Snake 2 Wins: <span id="snake2Wins">0</span>
+  <div id="gameContainer">
+    <div id="message"></div>
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+  </div>
+  <div id="stats">
+    <span id="snake1Score">Snake 1 Score: 0</span> |
+    <span id="snake2Score">Snake 2 Score: 0</span>
   </div>
 
   <script>
+    // Game configuration variables
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
-    const gridSize = 20;
+    const gridSize = 20; // Each cell is 20px
     const cols = canvas.width / gridSize;
     const rows = canvas.height / gridSize;
-    const frameRate = 100;
-    let gameInterval, gamesPlayed = 0, snake1Wins = 0, snake2Wins = 0;
+    const frameRate = 100; // Game update every 100ms
 
+    let gameInterval = null;
+    let snake1, snake2, food;
+    let snake1Score = 0, snake2Score = 0;
+
+    // Snake object constructor
     class Snake {
       constructor(color, startX, startY) {
         this.color = color;
@@ -82,6 +91,7 @@
       get head() {
         return this.body[0];
       }
+      // AI decision: steer toward food while avoiding collisions.
       decideDirection(food, otherSnake) {
         if (!this.alive) return;
         const directions = [
@@ -89,18 +99,32 @@
           { x: 1, y: 0 },
           { x: 0, y: 1 },
           { x: -1, y: 0 }
-        ].filter(d => {
+        ];
+        const validDirs = directions.filter(d => {
+          // Avoid reversing direction if snake length > 1
           if (this.body.length > 1 && d.x === -this.dir.x && d.y === -this.dir.y) return false;
-          const newX = this.head.x + d.x, newY = this.head.y + d.y;
+          const newX = this.head.x + d.x;
+          const newY = this.head.y + d.y;
           if (newX < 0 || newX >= cols || newY < 0 || newY >= rows) return false;
-          for (let cell of this.body) if (cell.x === newX && cell.y === newY) return false;
-          if (otherSnake) for (let cell of otherSnake.body) if (cell.x === newX && cell.y === newY) return false;
+          // Check self collision
+          for (let cell of this.body) {
+            if (cell.x === newX && cell.y === newY) return false;
+          }
+          // Check collision with other snake's body
+          if (otherSnake) {
+            for (let cell of otherSnake.body) {
+              if (cell.x === newX && cell.y === newY) return false;
+            }
+          }
           return true;
         });
-        if (validDirs.length > 0) this.dir = validDirs.sort((a, b) =>
-          (Math.abs((this.head.x + a.x) - food.x) + Math.abs((this.head.y + a.y) - food.y)) -
-          (Math.abs((this.head.x + b.x) - food.x) + Math.abs((this.head.y + b.y) - food.y))
-        )[0];
+        if (validDirs.length === 0) return;
+        validDirs.sort((a, b) => {
+          const distA = Math.abs((this.head.x + a.x) - food.x) + Math.abs((this.head.y + a.y) - food.y);
+          const distB = Math.abs((this.head.x + b.x) - food.x) + Math.abs((this.head.y + b.y) - food.y);
+          return distA - distB;
+        });
+        this.dir = validDirs[0];
       }
       move() {
         if (!this.alive) return;
@@ -109,79 +133,162 @@
         this.body.pop();
       }
       grow() {
-        this.body.unshift({ x: this.head.x + this.dir.x, y: this.head.y + this.dir.y });
+        const newHead = { x: this.head.x + this.dir.x, y: this.head.y + this.dir.y };
+        this.body.unshift(newHead);
       }
       checkCollision() {
-        for (let i = 1; i < this.body.length; i++) if (this.head.x === this.body[i].x && this.head.y === this.body[i].y) this.alive = false;
-        if (this.head.x < 0 || this.head.x >= cols || this.head.y < 0 || this.head.y >= rows) this.alive = false;
+        // Check self collision
+        for (let i = 1; i < this.body.length; i++) {
+          if (this.head.x === this.body[i].x && this.head.y === this.body[i].y) {
+            this.alive = false;
+            return;
+          }
+        }
+        // Check wall collision
+        if (this.head.x < 0 || this.head.x >= cols || this.head.y < 0 || this.head.y >= rows) {
+          this.alive = false;
+          return;
+        }
       }
     }
 
-    let snake1, snake2, food;
-    
-    function resetGame() {
+    // Initialize game state
+    function initGame() {
       snake1 = new Snake("lime", 5, 5);
       snake2 = new Snake("cyan", cols - 6, rows - 6);
       snake1.dir = { x: 1, y: 0 };
       snake2.dir = { x: -1, y: 0 };
+      snake1Score = 0;
+      snake2Score = 0;
       food = randomFood();
-      document.getElementById("message").textContent = "Game in Progress";
-      document.getElementById("restart").style.display = "none";
-      gameInterval = setInterval(update, frameRate);
+      document.getElementById("message").textContent = "";
+      updateStats();
     }
 
+    // Start the game loop
+    function startGame() {
+      if (gameInterval) clearInterval(gameInterval);
+      initGame();
+      gameInterval = setInterval(update, frameRate);
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("restartBtn").style.display = "none";
+    }
+
+    // Restart game handler
+    function restartGame() {
+      startGame();
+    }
+
+    // Generate a random food location not on any snake's body.
     function randomFood() {
+      let valid = false;
       let pos;
-      while (true) {
-        pos = { x: Math.floor(Math.random() * cols), y: Math.floor(Math.random() * rows) };
-        if (!snake1.body.some(cell => cell.x === pos.x && cell.y === pos.y) &&
-            !snake2.body.some(cell => cell.x === pos.x && cell.y === pos.y)) break;
+      while (!valid) {
+        pos = {
+          x: Math.floor(Math.random() * cols),
+          y: Math.floor(Math.random() * rows)
+        };
+        valid = true;
+        for (let cell of snake1.body) {
+          if (cell.x === pos.x && cell.y === pos.y) valid = false;
+        }
+        for (let cell of snake2.body) {
+          if (cell.x === pos.x && cell.y === pos.y) valid = false;
+        }
       }
       return pos;
     }
 
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawCell(food.x, food.y, "red");
-      if (snake1.alive) snake1.body.forEach((cell, i) => drawCell(cell.x, cell.y, i === 0 ? "yellow" : snake1.color));
-      if (snake2.alive) snake2.body.forEach((cell, i) => drawCell(cell.x, cell.y, i === 0 ? "orange" : snake2.color));
-    }
-
+    // Draw a cell on the canvas.
     function drawCell(x, y, color) {
       ctx.fillStyle = color;
       ctx.fillRect(x * gridSize, y * gridSize, gridSize, gridSize);
     }
 
+    // Update the stats panel.
+    function updateStats() {
+      document.getElementById("snake1Score").textContent = "Snake 1 Score: " + snake1Score;
+      document.getElementById("snake2Score").textContent = "Snake 2 Score: " + snake2Score;
+    }
+
+    // Draw the game state.
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Draw food.
+      drawCell(food.x, food.y, "red");
+      // Draw snake1.
+      if (snake1.alive) {
+        snake1.body.forEach((cell, index) => {
+          drawCell(cell.x, cell.y, index === 0 ? "yellow" : snake1.color);
+        });
+      }
+      // Draw snake2.
+      if (snake2.alive) {
+        snake2.body.forEach((cell, index) => {
+          drawCell(cell.x, cell.y, index === 0 ? "orange" : snake2.color);
+        });
+      }
+    }
+
+    // Main game update loop.
     function update() {
-      if ((!snake1.alive && !snake2.alive) || (!snake1.alive && snake2.alive) || (snake1.alive && !snake2.alive)) {
+      // Check if game over conditions are met.
+      if ((!snake1.alive && !snake2.alive) ||
+          (snake1.alive && !snake2.alive) ||
+          (!snake1.alive && snake2.alive)) {
+        const msg = document.getElementById("message");
+        if (snake1.alive && !snake2.alive) {
+          msg.textContent = "Snake 1 wins!";
+        } else if (snake2.alive && !snake1.alive) {
+          msg.textContent = "Snake 2 wins!";
+        } else {
+          msg.textContent = "Game Over! Both snakes died.";
+        }
         clearInterval(gameInterval);
-        document.getElementById("restart").style.display = "inline";
-        gamesPlayed++;
-        if (snake1.alive) { snake1Wins++; document.getElementById("message").textContent = "Snake 1 Wins!"; }
-        else if (snake2.alive) { snake2Wins++; document.getElementById("message").textContent = "Snake 2 Wins!"; }
-        else document.getElementById("message").textContent = "Game Over! Both Snakes Died.";
-        updateStats();
+        document.getElementById("restartBtn").style.display = "inline-block";
         return;
       }
+
+      // Each snake decides its next move.
       snake1.decideDirection(food, snake2);
       snake2.decideDirection(food, snake1);
+
+      // Move snakes.
       snake1.move();
       snake2.move();
+
+      // Check collisions.
       snake1.checkCollision();
       snake2.checkCollision();
-      if (snake1.alive && snake1.head.x === food.x && snake1.head.y === food.y) { snake1.grow(); food = randomFood(); }
-      if (snake2.alive && snake2.head.x === food.x && snake2.head.y === food.y) { snake2.grow(); food = randomFood(); }
+
+      // Check collisions between snake heads and the other snake's body.
+      if (snake2.body.some(cell => cell.x === snake1.head.x && cell.y === snake1.head.y)) {
+        snake1.alive = false;
+      }
+      if (snake1.body.some(cell => cell.x === snake2.head.x && cell.y === snake2.head.y)) {
+        snake2.alive = false;
+      }
+
+      // Check if a snake eats the food.
+      if (snake1.alive && snake1.head.x === food.x && snake1.head.y === food.y) {
+        snake1.grow();
+        snake1Score++;
+        food = randomFood();
+        updateStats();
+      }
+      if (snake2.alive && snake2.head.x === food.x && snake2.head.y === food.y) {
+        snake2.grow();
+        snake2Score++;
+        food = randomFood();
+        updateStats();
+      }
+
       draw();
     }
 
-    function updateStats() {
-      document.getElementById("gamesPlayed").textContent = gamesPlayed;
-      document.getElementById("snake1Wins").textContent = snake1Wins;
-      document.getElementById("snake2Wins").textContent = snake2Wins;
-    }
-
-    document.getElementById("start").addEventListener("click", resetGame);
-    document.getElementById("restart").addEventListener("click", resetGame);
+    // Button event listeners.
+    document.getElementById("startBtn").addEventListener("click", startGame);
+    document.getElementById("restartBtn").addEventListener("click", restartGame);
   </script>
 </body>
 </html>
